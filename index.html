@@ -25,7 +25,7 @@ import { runOrchestrator } from './core/orchestrator.js';
 window.go = async () => {
   let raw = document.getElementById('in').value;
   let {intent, entities, resultado, log} = await runOrchestrator(raw);
-  document.getElementById('out').textContent = resultado;
+  document.getElementById('out').textContent = resultado || result || intent;
   document.getElementById('log').textContent = log;
 }
 </script>
