@@ -1,31 +1,59 @@
-// Este es el que entiende "quinientos litros", "fragmenta", "reparte" sin regex
+// ai-fallback.js V3.1 - Entiende humano sin regex dura
 export function AIFallback(raw){
-  let t = raw.toLowerCase();
+  if(!raw) return null;
+  let t = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); // quita tildes
   
-  // Diccionario humano, no de programador
-  const palabras = {
-    numerosTexto: { "quinientos":500, "cien":100, "ochenta":80, "cinco":5, "diez":10, "mil":1000 },
-    total: ["tengo","hay","total","tanque","litros","litro","l","de agua"],
-    dosis: ["ml","miligramo","estroncio","aditar","dosis","hechar","echar"],
-    base: ["cada","por","base","para","en","x"]
+  const numerosTexto = {
+    "cero":0,"uno":1,"dos":2,"tres":3,"cuatro":4,"cinco":5,"seis":6,"siete":7,"ocho":8,"nueve":9,"diez":10,
+    "veinte":20,"treinta":30,"cuarenta":40,"cincuenta":50,"sesenta":60,"setenta":70,"ochenta":80,"noventa":90,
+    "cien":100,"ciento":100,"doscientos":200,"trescientos":300,"cuatrocientos":400,"quinientos":500,
+    "seiscientos":600,"setecientos":700,"ochocientos":800,"novecientos":900,"mil":1000
   };
-  
-  // Traduce texto a números
+
+  // 1. Traduce con bordes de palabra \b para no romper palabras
   let clean = t;
-  for(let k in palabras.numerosTexto){
-    clean = clean.replace(new RegExp(k,'g'), palabras.numerosTexto[k]);
+  for(let k in numerosTexto){
+    clean = clean.replace(new RegExp(`\\b${k}\\b`,'g'), numerosTexto[k]);
   }
-  let nums = [...clean.matchAll(/-?\d*\.?\d+/g)].map(m=>parseFloat(m[0]));
-  
-  if(nums.length>=2){
-    // La IA infiere: el más grande es el total, el mediano la base, el chico la dosis
-    let total = Math.max(...nums);
+
+  // 2. Saca números con decimales con coma o punto
+  let nums = [...clean.matchAll(/-?\d+(?:[.,]\d+)?/g)].map(m=>parseFloat(m[0].replace(',','.'))).filter(n=>!isNaN(n));
+  if(nums.length === 0) return null;
+
+  // 3. Inferencia por contexto, no por tamaño
+  let total = null, base = 80, dosis = 5; // defaults de acuario
+
+  // busca "para X kilos / litros / base"
+  const mBase = clean.match(/(?:para|cada|por|en|base)\s*(\d+[.,]?\d*)/);
+  const mTotal = clean.match(/(\d+[.,]?\d*)\s*(?:l|litros|total|tanque)/);
+  const mDosis = clean.match(/(\d+[.,]?\d*)\s*(?:ml|miligramo|dosis)/);
+
+  if(mTotal) total = parseFloat(mTotal[1].replace(',','.'));
+  if(mBase) base = parseFloat(mBase[1].replace(',','.'));
+  if(mDosis) dosis = parseFloat(mDosis[1].replace(',','.'));
+
+  // fallback si no encontró con unidades: el más grande es volumen
+  if(!total) total = Math.max(...nums);
+
+  if(nums.length === 1) {
+    // solo un número, asumimos que es total
+    dosis = 5; base = 80;
+  } else if(!mBase && !mDosis){
+    // sin unidades, usa tu heurística pero sin chocar
     let resto = nums.filter(n=>n!==total);
-    let base = resto.length ? Math.max(...resto) : 80;
-    let dosis = resto.length>1 ? Math.min(...resto) : 5;
-    
-    let r = (total/base)*dosis;
-    return `✅ CURADO por ai-fallback.js (Mini-IA)\nEntendí lenguaje humano: "${raw}"\nTraducido a: total=${total}, base=${base}, dosis=${dosis}\n\n👉 ${r.toFixed(2)} ml\n\n[Esta respuesta no vino de regex, vino de inferencia]`;
+    if(resto.length) base = Math.max(...resto);
+    if(resto.length>1) dosis = Math.min(...resto);
   }
-  return null;
+
+  const r = (total/base)*dosis;
+
+  // 4. IMPORTANTE: Devuelve OBJETO, no string, así tu UI lo pinta
+  return {
+    result: `${r.toFixed(2)} ml`,
+    intent: "dosis",
+    domain: "aquarium/dosing.js",
+    curated: true,
+    explanation: `Entendí "${raw}" -> total=${total}L, base=${base}, dosis=${dosis}ml`,
+    raw: `✅ CURADO por ai-fallback.js V3.1\n👉 ${r.toFixed(2)} ml`
+  };
 }

@@ -1,29 +1,55 @@
-// Detecta si el dominio la cagó
+// Detecta si el dominio la cagó - Versión Robusta
 export function seEquivoco(resultado, raw, entities){
-  if(!resultado) return true;
-  if(resultado.includes("NaN") || resultado.includes("undefined")) return true;
-  if(resultado.includes("Detecté:") || resultado.includes("Escribe:")) return true;
-  // Si el usuario puso 500 y el resultado no tiene 500, ignoró algo
-  if(entities.numbers.includes(500) && !resultado.includes("500")) return true;
+  // 1. Si no hay resultado, falló
+  if(resultado === null || resultado === undefined || resultado === "") return true;
+
+  const txt = String(resultado).toLowerCase();
+
+  // 2. Errores técnicos
+  if(txt.includes("nan") || txt.includes("undefined") || txt.includes("infinity")) return true;
+
+  // 3. Mensajes de "no entendí" de tus dominios
+  const frasesFallo = ["detecté:", "escribe:", "no entendí", "no pude"];
+  if(frasesFallo.some(f => txt.includes(f))) return true;
+
+  // 4. Regla de oro: Si el usuario dio números y tu resultado no tiene ningún número, ignoraste todo
+  if(entities?.numbers?.length > 0){
+    const tieneNumeroEnRespuesta = /\d/.test(txt);
+    if(!tieneNumeroEnRespuesta) return true;
+  }
+
   return false;
 }
 
-// Intenta curar solo
+// Intenta curar solo - Estrategia B mejorada
 export function autoReintento(raw, entities){
-  // Estrategia B: Si no encontró por regex, intenta por orden de números
-  let nums = entities.numbers;
-  if(nums.length >=3){
-    let total = nums.find(n=>n>=100) || nums[0];
-    let base = nums.find(n=>n>=20 && n<100) || 80;
-    let dosis = nums.find(n=>n<20) || 5;
-    if(total && base && dosis){
-      let r = (total/base)*dosis;
-      return {
-        curado: true,
-        resultado: `✅ AUTO-CURADO por self-healer.js\nEstrategia B: Detecté números sin palabras clave\n${total}L | ${dosis}ml per ${base}L\n\n👉 ${r.toFixed(2)} ml (curado sin tu intervención)`,
-        estrategia: "B-numeros"
-      };
-    }
-  }
-  return {curado: false};
+  let nums = entities?.numbers || [];
+  if(nums.length < 2) return {curado: false};
+
+  // Ordenamos de mayor a menor para inferir: Total > Base > Dosis
+  // Ej: [500, 80, 5] -> Total=500, Base=80, Dosis=5
+  let sorted = [...nums].sort((a,b) => b - a);
+  
+  let total = sorted[0]; // El más grande siempre es el acuario
+  let dosis = sorted[sorted.length - 1]; // El más chico es la dosis
+  let base = sorted.length === 3 ? sorted[1] : 80; // El de en medio, o 80 por defecto
+
+  // Validación lógica de acuario, no números mágicos sueltos
+  if(total < 10 || total > 5000) return {curado: false}; // Un acuario no tiene 2L ni 10000L
+  if(dosis > 50) return {curado: false}; // Nadie dosifica 80ml como dosis base
+  if(base < 10 || base > 500) return {curado: false};
+
+  let r = (total / base) * dosis;
+
+  return {
+    curado: true,
+    // OJO: Ahora devolvemos DATOS, no texto bonito. El texto lo hace index.html
+    resultado: {
+      valor: Number(r.toFixed(2)),
+      unidad: "ml",
+      detalle: { total, base, dosis },
+      mensaje: `AUTO-CURADO Estrategia B: ${total}L | ${dosis}ml per ${base}L`
+    },
+    estrategia: "B-numeros-ordenados"
+  };
 }
