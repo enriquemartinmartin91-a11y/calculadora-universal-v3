@@ -5,66 +5,99 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>UNIVERSAL V3</title>
 <style>
-body{background:#000;color:#fff;font-family:Arial;text-align:center;margin:0;padding:20px}
-.card{background:#1a1a1a;border-radius:20px;padding:20px;max-width:400px;margin:auto}
-img{width:150px;height:150px;border-radius:50%;border:4px solid gold;object-fit:cover}
-input{width:90%;padding:15px;border-radius:12px;border:none;font-size:18px;margin:10px 0}
-button{width:95%;padding:15px;border-radius:12px;border:none;background:#00ff88;font-size:22px;font-weight:bold;cursor:pointer}
-#resultado{background:#000;border-left:5px solid #00ff88;border-radius:12px;padding:15px;margin-top:15px;text-align:left;font-family:monospace;white-space:pre-wrap}
+body{background:#0a0a0a;color:#fff;font-family:monospace;padding:20px;max-width:700px;margin:auto}
+.card{background:#1e1e1e;border-radius:20px;padding:20px}
+input{width:100%;padding:16px;border-radius:12px;border:none;font-size:16px;box-sizing:border-box}
+button{width:100%;background:#00ff88;color:#000;padding:16px;border-radius:12px;border:none;font-size:18px;font-weight:bold;margin-top:12px;cursor:pointer}
+.res{background:#000;border-radius:15px;padding:16px;margin-top:15px;white-space:pre-wrap;border-left:4px solid #00ff88}
+#avatar{width:130px;height:130px;border-radius:50%;object-fit:cover;border:3px solid #ffcc00;transition:all 0.3s ease;background:#fff}
+.avatar-box{text-align:center;margin-bottom:15px}
+#mensaje-perrita{font-size:14px;margin-top:8px;min-height:20px}
 </style>
 </head>
 <body>
-<h2>🧠 UNIVERSAL V3</h2>
+<h2 style="text-align:center">🧠 UNIVERSAL V3</h2>
+
 <div class="card">
-<img id="perrita" src="https://cdn-icons-png.flaticon.com/512/616/616408.png" alt="perrita">
-<p>¿Qué calculamos hoy? 🐾</p>
-<input id="entrada" placeholder="Ej: 500L 5ml / 80">
-<button onclick="calcular()">EJECUTAR</button>
-<div id="resultado">Esperando...</div>
+  <div class="avatar-box">
+    <img id="avatar" src="./assets/perrita-dudosa.png" alt="Perrita">
+    <p id="mensaje-perrita">¿Qué calculamos hoy? 🐾</p>
+  </div>
+
+  <input id="in" placeholder="Ej: 500L 5ml / 80 o quinientos litros...">
+  <button onclick="go()">EJECUTAR</button>
+  <div id="out" class="res">Esperando...</div>
+  <div id="log" style="font-size:11px;color:#00ff88;margin-top:10px"></div>
 </div>
 
 <script>
-const img = document.getElementById('perrita');
-const feliz = "https://cdn-icons-png.flaticon.com/512/616/616408.png";
-const dudosa = "https://cdn-icons-png.flaticon.com/512/616/616408.png";
-const triste = "https://cdn-icons-png.flaticon.com/512/616/616408.png";
+// --- TU MISMA PERRITA, SIN IMPORT QUE LA TRABE ---
+function setAvatar(estado, mensaje){
+  const img = document.getElementById("avatar");
+  const texto = document.getElementById("mensaje-perrita");
+  const out = document.getElementById("out");
+  if(estado === "feliz"){
+    img.src = "./assets/perrita-feliz.png";
+    img.style.borderColor = "#00ff88";
+    out.style.borderLeftColor = "#00ff88";
+    texto.textContent = mensaje || "¡Eso! ¡Muy bien! 🥳";
+  }
+  if(estado === "triste"){
+    img.src = "./assets/perrita-triste.png";
+    img.style.borderColor = "#ff4444";
+    out.style.borderLeftColor = "#ff4444";
+    texto.textContent = mensaje || "Ay no... eso no me salió 😢 ¿Lo intentamos de nuevo?";
+  }
+  if(estado === "pensando"){
+    img.src = "./assets/perrita-dudosa.png";
+    img.style.borderColor = "#ffcc00";
+    out.style.borderLeftColor = "#ffcc00";
+    texto.textContent = mensaje || "Mmm... déjame pensar 🤔";
+  }
+}
 
-function calcular(){
-  const texto = document.getElementById('entrada').value.toLowerCase();
-  const res = document.getElementById('resultado');
-  
-  // Poner dudosa mientras piensa
-  img.style.borderColor = "orange";
+// Diccionario para que entienda con palabras
+const palabrasNum = {uno:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,veinte:20,treinta:30,cuarenta:40,cincuenta:50,sesenta:60,setenta:70,ochenta:80,noventa:90,cien:100,ciento:100,doscientos:200,trescientos:300,cuatrocientos:400,quinientos:500,seiscientos:600,setecientos:700,ochocientos:800,novecientos:900,mil:1000};
 
-  if(!texto.trim()){
-    res.innerText = "Escribe algo primero...";
-    img.style.borderColor = "red";
+function sacarNumeros(raw){
+  let texto = raw.toLowerCase();
+  // Cambiar palabras por numeros: quinientos -> 500
+  for(let p in palabrasNum){ texto = texto.replaceAll(p, palabrasNum[p]); }
+  let nums = texto.match(/[\d.]+/g);
+  return nums ? nums.map(Number) : [];
+}
+
+async function go(){
+  let raw = document.getElementById('in').value;
+  if(!raw.trim()){
+    setAvatar("triste", "Escríbeme algo primero 🐾");
     return;
   }
+  setAvatar("pensando", "Mmm... déjame pensar 🤔");
+  document.getElementById('out').textContent = "Calculando...";
 
-  // Sacar todos los números
-  const nums = texto.match(/[\d.]+/g);
-  if(!nums || nums.length < 2){
-    res.innerText = "No entendí 😢\nPrueba: 500L 5ml / 80";
-    img.style.borderColor = "red";
-    return;
+  try{
+    let nums = sacarNumeros(raw);
+    if(nums.length < 2){
+      setAvatar("triste", "Ay... no entendí eso 😢 ¿Me lo dices de otra forma?");
+      document.getElementById('out').textContent = "No entendí, intenta: 500L 5ml / 80";
+      return;
+    }
+    let litros = nums[0];
+    let dosis = nums[1];
+    let divisor = nums[2] || 1;
+    let totalMl = litros * 1000;
+    let totalDosis = totalMl / dosis;
+    let final = totalDosis / divisor;
+
+    let resultado = "¡Listo! 🥳\n\nTotal: " + totalMl.toLocaleString() + " ml\nDosis de " + dosis + " ml = " + totalDosis.toLocaleString() + " dosis\nEntre " + divisor + " = " + final.toLocaleString() + " por grupo";
+    document.getElementById('log').textContent = "Entendí: " + litros + "L, " + dosis + "ml, / " + divisor;
+    setAvatar("feliz", "¡Listo! ¡Te salió perfecto! 🥳");
+    document.getElementById('out').textContent = resultado;
+  }catch(e){
+    setAvatar("triste", "Ay no... me trabé 😢");
+    document.getElementById('out').textContent = "Error: " + e.message;
   }
-
-  // Ejemplo: 500L 5ml / 80 -> 500 litros, dosis 5ml, entre 80
-  let litros = parseFloat(nums[0]);
-  let dosis = parseFloat(nums[1]);
-  let divisor = nums[2] ? parseFloat(nums[2]) : 1;
-
-  let totalMl = litros * 1000;
-  let totalDosis = totalMl / dosis;
-  let final = totalDosis / divisor;
-
-  res.innerText = "¡Listo! 🥳\n\n" +
-    "Total: " + totalMl + " ml\n" +
-    "Dosis de " + dosis + " ml = " + totalDosis.toLocaleString() + " dosis\n" +
-    "Entre " + divisor + " = " + final.toLocaleString() + " por grupo";
-
-  img.style.borderColor = "#00ff88";
 }
 </script>
 </body>
