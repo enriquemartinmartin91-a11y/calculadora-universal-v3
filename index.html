@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>UNIVERSAL V3</title>
+<title>UNIVERSAL V4</title>
 <style>
 body{background:#0a0a0a;color:#fff;font-family:monospace;padding:20px;max-width:700px;margin:auto}
 .card{background:#1e1e1e;border-radius:20px;padding:20px}
@@ -13,10 +13,12 @@ button{width:100%;background:#00ff88;color:#000;padding:16px;border-radius:12px;
 #avatar{width:130px;height:130px;border-radius:50%;object-fit:cover;border:3px solid #ffcc00;transition:all 0.3s ease;background:#fff}
 .avatar-box{text-align:center;margin-bottom:15px}
 #mensaje-perrita{font-size:14px;margin-top:8px;min-height:20px}
+.ejemplos{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}
+.ejemplos button{width:auto;background:#2a2a2a;color:#00ff88;padding:8px 12px;font-size:12px;margin:0;border:1px solid #333}
 </style>
 </head>
 <body>
-<h2 style="text-align:center">🧠 UNIVERSAL V3</h2>
+<h2 style="text-align:center">🧠 UNIVERSAL V4</h2>
 
 <div class="card">
   <div class="avatar-box">
@@ -24,14 +26,24 @@ button{width:100%;background:#00ff88;color:#000;padding:16px;border-radius:12px;
     <p id="mensaje-perrita">¿Qué calculamos hoy? 🐾</p>
   </div>
 
-  <input id="in" placeholder="Ej: 500L 5ml / 80 o quinientos litros...">
+  <input id="in" placeholder="Ej: 500L 5ml / 80, 5+8, Pepito tiene 5 y da 3...">
   <button onclick="go()">EJECUTAR</button>
+
+  <div class="ejemplos">
+    <button onclick="probar('500L 5ml / 80')">500L 5ml / 80</button>
+    <button onclick="probar('5+8')">5+8</button>
+    <button onclick="probar('Pepito tiene 5 manzanas y le da 3 a Juan, ¿cuántas le quedan?')">Pepito 🍎</button>
+    <button onclick="probar('Maria tiene 10 pesos y gasta 4, ¿cuánto le queda?')">María 💸</button>
+    <button onclick="probar('Juan reparte 20 dulces entre 4 niños')">Repartir 🍬</button>
+  </div>
+
   <div id="out" class="res">Esperando...</div>
-  <div id="log" style="font-size:11px;color:#00ff88;margin-top:10px"></div>
+  <div id="log" style="font-size:11px;color:#00ff88;margin-top:10px;white-space:pre-wrap"></div>
 </div>
 
-<script>
-// --- TU MISMA PERRITA, SIN IMPORT QUE LA TRABE ---
+<script type="module">
+import { runOrchestrator } from './core/orchestrator.js';
+
 function setAvatar(estado, mensaje){
   const img = document.getElementById("avatar");
   const texto = document.getElementById("mensaje-perrita");
@@ -56,18 +68,13 @@ function setAvatar(estado, mensaje){
   }
 }
 
-// Diccionario para que entienda con palabras
-const palabrasNum = {uno:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,veinte:20,treinta:30,cuarenta:40,cincuenta:50,sesenta:60,setenta:70,ochenta:80,noventa:90,cien:100,ciento:100,doscientos:200,trescientos:300,cuatrocientos:400,quinientos:500,seiscientos:600,setecientos:700,ochocientos:800,novecientos:900,mil:1000};
+// Para que los botones de ejemplo funcionen
+window.probar = (txt) => {
+  document.getElementById('in').value = txt;
+  go();
+};
 
-function sacarNumeros(raw){
-  let texto = raw.toLowerCase();
-  // Cambiar palabras por numeros: quinientos -> 500
-  for(let p in palabrasNum){ texto = texto.replaceAll(p, palabrasNum[p]); }
-  let nums = texto.match(/[\d.]+/g);
-  return nums ? nums.map(Number) : [];
-}
-
-async function go(){
+window.go = async function(){
   let raw = document.getElementById('in').value;
   if(!raw.trim()){
     setAvatar("triste", "Escríbeme algo primero 🐾");
@@ -75,30 +82,38 @@ async function go(){
   }
   setAvatar("pensando", "Mmm... déjame pensar 🤔");
   document.getElementById('out').textContent = "Calculando...";
+  document.getElementById('log').textContent = "";
 
   try{
-    let nums = sacarNumeros(raw);
-    if(nums.length < 2){
-      setAvatar("triste", "Ay... no entendí eso 😢 ¿Me lo dices de otra forma?");
-      document.getElementById('out').textContent = "No entendí, intenta: 500L 5ml / 80";
-      return;
-    }
-    let litros = nums[0];
-    let dosis = nums[1];
-    let divisor = nums[2] || 1;
-    let totalMl = litros * 1000;
-    let totalDosis = totalMl / dosis;
-    let final = totalDosis / divisor;
+    // V4: YA NO CALCULA AQUI. Le pasa todo al cerebro universal.
+    const res = await runOrchestrator(raw);
+    console.log("V4:", res);
 
-    let resultado = "¡Listo! 🥳\n\nTotal: " + totalMl.toLocaleString() + " ml\nDosis de " + dosis + " ml = " + totalDosis.toLocaleString() + " dosis\nEntre " + divisor + " = " + final.toLocaleString() + " por grupo";
-    document.getElementById('log').textContent = "Entendí: " + litros + "L, " + dosis + "ml, / " + divisor;
-    setAvatar("feliz", "¡Listo! ¡Te salió perfecto! 🥳");
-    document.getElementById('out').textContent = resultado;
+    const esError = !res.resultado || res.resultado.includes("No pude resolverlo");
+    if(esError){
+      setAvatar("triste", "Ay no... eso no me salió 😢 ¿Me lo dices de otra forma?");
+      document.getElementById('out').textContent = res.resultado;
+    } else {
+      // Mensaje bonito segun intent
+      let msg = "¡Listo! ¡Te salió perfecto! 🥳";
+      if(res.intent === "dosis") msg = "¡Listo! Tu acuario queda perfecto 🐠";
+      if(res.intent === "problema_universal") msg = "¡Listo! Ya entendí tu problema 🧠";
+      if(res.intent === "calculadora") msg = "¡Listo! Cuenta hecha ⚡";
+      setAvatar("feliz", msg);
+      document.getElementById('out').textContent = res.resultado;
+    }
+    document.getElementById('log').textContent = res.log || "";
   }catch(e){
+    console.error(e);
     setAvatar("triste", "Ay no... me trabé 😢");
-    document.getElementById('out').textContent = "Error: " + e.message;
+    document.getElementById('out').textContent = "Error: " + e.message + "\n\nRevisa que tus archivos V4 estén en su carpeta core/ y que lo abras con Live Server, no con doble clic.";
   }
-}
+};
+
+// Enter también ejecuta
+document.getElementById('in').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') go();
+});
 </script>
 </body>
 </html>

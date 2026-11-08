@@ -1,4 +1,4 @@
-// core/orchestrator.js V3.2 - con imports, contrato único y sin borrar el 0
+// core/orchestrator.js V4 - UNIVERSAL: deja pasar calculadora + problemas con palabras
 import { EntityExtractor } from './nlu/entityExtractor.js';
 import { IntentClassifier } from './nlu/intentClassifier.js';
 import { queAprendi, aprender } from './memory/memory.js';
@@ -19,17 +19,25 @@ const DOMINIOS = [
   { keys: ["division","dividir","repartir"], fn: Division },
 ];
 
+// 2. INTENTS UNIVERSALES: estos NO son de un dominio, son de AIFallback V4
+// Aqui es donde entra lo universal: cualquier nombre, cualquier objeto
+const INTENTS_UNIVERSALES = ["calculadora","calculo","matematicas","matematica","problema","problema_universal","universal","aritmetica","cuenta","operacion","tarea"];
+
+function esUniversal(intent){
+  const clean = String(intent||"").toLowerCase().trim();
+  return INTENTS_UNIVERSALES.some(k => clean.includes(k));
+}
+
 function buscarDominio(intent){
   const clean = String(intent||"").toLowerCase().trim();
   return DOMINIOS.find(d => d.keys.includes(clean) || d.keys.some(k => clean.includes(k)))?.fn || null;
 }
 
-// 2. Normaliza cualquier resultado a un solo formato: { texto, ... }
+// 3. Normaliza cualquier resultado a un solo formato: { texto, ... }
 function normalizar(res){
   if(res == null) return null;
   if(typeof res === "string") return { resultado: res, result: res, raw: res };
   if(typeof res === "number") return { resultado: String(res), result: String(res), raw: String(res) };
-  // si ya es objeto del fallback, le asegura los 2 campos
   const texto = res.resultado || res.result || res.raw || null;
   if(!texto) return null;
   return { ...res, resultado: texto, result: texto };
@@ -44,22 +52,53 @@ export async function runOrchestrator(raw){
 
   let log = `🎼 "${raw}" | Intent: ${intent} | Nums: ${entities.numbers}\n`;
 
-  // Intento 1: Dominio experto
   let resultado = null;
+
+  // --- V4: SI ES UNIVERSAL, VE DIRECTO A AIFallback V4 ---
+  // No lo mandamos a buscar dominio experto, porque no es dosis ni pared.
+  // Es un problema con palabras de cualquier persona / cosa.
+  if(esUniversal(intent)){
+    log += `🌍 Intent UNIVERSAL detectado -> va a AIFallback V4\n`;
+    try{
+      let ia = await AIFallback(raw);
+      if(ia){
+        resultado = normalizar(ia);
+        log += `✅ Resuelto por AIFallback V4 Universal: ${resultado?.resultado}\n`;
+        if(resultado) aprender(raw, "AI-fallback-universal", resultado.resultado);
+      }
+    }catch(e){ log += `❌ AIFallback Universal falló: ${e.message}\n`; }
+
+    // Si AIFallback universal no pudo, NO nos rendimos, intentamos dominio como plan B
+    if(!resultado){
+      log += `⚠️ Universal no resolvió, intento dominio experto como plan B...\n`;
+    } else {
+      // Ya quedó, devolvemos de una vez
+      return {
+        intent,
+        entities,
+        resultado: resultado.resultado,
+        result: resultado.resultado,
+        log: log + (resultado.log ? `\n${resultado.log}` : "")
+      };
+    }
+  }
+
+  // Intento 1: Dominio experto (solo si no es universal o si universal falló)
   const dominioFn = buscarDominio(intent);
   
   try{
     if(dominioFn){
       resultado = normalizar(await dominioFn(raw, entities));
     } else {
-      throw new Error(`Intent desconocido: ${intent}`);
+      // V4: Antes era throw, ahora solo avisa y deja que el fallback universal intente
+      log += `ℹ️ Sin dominio experto para intent: ${intent}, se intentará fallback universal\n`;
     }
   }catch(e){ 
     resultado = null;
     log += `❌ Intento 1 falló: ${e.message}\n`;
   }
 
-  // 3. Self-Healer: usa == null, no !resultado, para no borrar el 0
+  // 4. Self-Healer: usa == null, no !resultado, para no borrar el 0
   const esMalo = resultado == null || seEquivoco(resultado?.resultado || resultado, raw, entities);
   
   if(esMalo){
@@ -70,12 +109,12 @@ export async function runOrchestrator(raw){
     if(cura?.curado && cura?.resultado){
       const norm = normalizar(cura.resultado);
       if(norm){
-        aprender(raw, cura.estrategia, norm.resultado); // guarda TEXTO, no objeto
+        aprender(raw, cura.estrategia, norm.resultado);
         resultado = norm;
         log += `✅ Curado por ${cura.estrategia}\n`;
       }
     } else {
-      // AIFallback en tu V3.2 ya es sync, no necesita await, pero await no le hace daño
+      // AIFallback V4 universal - ultima oportunidad para CUALQUIER problema
       let ia = null;
       try{ ia = await AIFallback(raw); }catch(e){ log += `❌ AI-Fallback falló: ${e.message}\n`; }
       if(ia){
@@ -83,6 +122,7 @@ export async function runOrchestrator(raw){
         if(norm){
           aprender(raw, "AI-fallback", norm.resultado);
           resultado = norm;
+          log += `✅ Curado por AIFallback V4 Universal\n`;
         }
       }
     }
@@ -90,7 +130,7 @@ export async function runOrchestrator(raw){
 
   const final = resultado ? normalizar(resultado) : null;
 
-  // 4. CONTRATO ÚNICO: siempre devuelve resultado + result + log
+  // 5. CONTRATO ÚNICO: siempre devuelve resultado + result + log
   return {
     intent, 
     entities, 

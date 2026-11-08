@@ -1,4 +1,4 @@
-// ai-fallback.js V3.2 - contrato unificado + números compuestos
+// ai-fallback.js V4 - UNIVERSAL: calculadora + problemas con palabras + dosis
 export function AIFallback(raw){
   if(!raw || !raw.trim()) return null;
   let t = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
@@ -12,60 +12,96 @@ export function AIFallback(raw){
     "medio":0.5, "cuarto":0.25
   };
 
-  // 1. Une compuestos: "quinientos veinte" -> 520, "veinte y cinco" -> 25
-  // Primero convierte "mil doscientos" y "ciento veinte" sumando
   let clean = t;
-  // "X y Y" para decenas: veinte y cinco = 25
   clean = clean.replace(/\b(veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\s+y\s+(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)\b/g, (_,d,u) => String(baseNums[d]+baseNums[u]));
-  // "quinientos veinte" = 500 + 20
   clean = clean.replace(/\b(doscientos|trescientos|cuatrocientos|quinientos|seiscientos|setecientos|ochocientos|novecientos|ciento|cien)\s+(veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|diez|once|doce|trece|catorce|quince|dieciseis|diecisiete|dieciocho|diecinueve|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)\b/g, (_,c,u) => String(baseNums[c]+baseNums[u]));
-  // "mil doscientos" = 1000 + 200
   clean = clean.replace(/\bmil\s+(doscientos|trescientos|cuatrocientos|quinientos|seiscientos|setecientos|ochocientos|novecientos|ciento|cien|veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\b/g, (_,c) => String(1000+baseNums[c]));
 
   for(let k in baseNums){
-    if(k==="medio"||k==="cuarto") continue; // se manejan aparte
+    if(k==="medio"||k==="cuarto") continue;
     clean = clean.replace(new RegExp(`\\b${k}\\b`,'g'), baseNums[k]);
   }
-  // "dos punto cinco" y "dos coma cinco"
   clean = clean.replace(/(\d+)\s+(?:punto|coma)\s+(\d+)/g, "$1.$2");
 
   let nums = [...clean.matchAll(/-?\d+(?:[.,]\d+)?/g)].map(m=>parseFloat(m[0].replace(',','.'))).filter(n=>!isNaN(n));
   if(nums.length === 0) return null;
 
-  // 2. Extrae con UNIDADES, no con Math.max. Así no se confunde
-  // Soporta: 500L, 500 litros, 500l, 5ml, 5al, 5 a/l, 5 por litro
-  const mTotal = clean.match(/(\d+[.,]?\d*)\s*(?:l|litro|litros|lt)\b/);
-  const mDosis = clean.match(/(\d+[.,]?\d*)\s*(?:ml|miligramo|miligramos|dosis|a\/l|al)\b/) 
-              || clean.match(/(\d+[.,]?\d*)\s*(?:por|para|cada)\s*(?:litro|l)\b/);
-  // Base: solo si dice "cada 80", "por cada 80", "base 80", "en 80"
-  const mBase = clean.match(/(?:cada|base|en)\s*(\d+[.,]?\d*)/) 
-             || clean.match(/\/\s*(\d+[.,]?\d*)/); // el "/ 80" de tu ejemplo
+  const makeReturn = (texto, intent, entities, logExtra) => ({
+    resultado: texto,
+    result: texto,
+    intent,
+    entities,
+    domain: "ai-fallback.js V4",
+    curated: true,
+    log: `✅ CURADO por ai-fallback.js V4\n👉 ${texto} ${logExtra||""}`,
+    explanation: `Entendí "${raw}" -> ${logExtra||""}`,
+    raw: `✅ CURADO por ai-fallback.js V4\n👉 ${texto}`
+  });
 
-  let total = mTotal ? parseFloat(mTotal[1].replace(',','.')) : null;
-  let dosis = mDosis ? parseFloat(mDosis[1].replace(',','.')) : null;
-  let base = mBase ? parseFloat(mBase[1].replace(',','.')) : 80;
-
-  // 3. Fallback con orden, no con Math.max: primer número = total si no hay unidad
-  if(total === null) total = nums[0];
-  if(dosis === null) {
-    // si hay 3 números y ya usamos total y base, el que sobra es dosis
-    const resto = nums.filter(n => n !== total && n !== base);
-    dosis = resto.length ? resto[0] : 5;
+  // === 1. MODO DOSIS / LITROS - prioridad si hay L, ml, litro, dosis ===
+  const esDosis = /\b(l|litro|litros|lt|ml|dosis)\b/.test(clean) || /\/\s*\d/.test(clean) && clean.includes("l");
+  if(esDosis){
+    const mTotal = clean.match(/(\d+[.,]?\d*)\s*(?:l|litro|litros|lt)\b/);
+    const mDosis = clean.match(/(\d+[.,]?\d*)\s*(?:ml|miligramo|miligramos|dosis|a\/l|al)\b/) 
+                || clean.match(/(\d+[.,]?\d*)\s*(?:por|para|cada)\s*(?:litro|l)\b/);
+    const mBase = clean.match(/(?:cada|base|en)\s*(\d+[.,]?\d*)/) 
+               || clean.match(/\/\s*(\d+[.,]?\d*)/);
+    let total = mTotal ? parseFloat(mTotal[1].replace(',','.')) : null;
+    let dosis = mDosis ? parseFloat(mDosis[1].replace(',','.')) : null;
+    let base = mBase ? parseFloat(mBase[1].replace(',','.')) : 80;
+    if(total === null) total = nums[0];
+    if(dosis === null) {
+      const resto = nums.filter(n => n !== total && n !== base);
+      dosis = resto.length ? resto[0] : 5;
+    }
+    const r = (total / base) * dosis;
+    const texto = `${r.toFixed(2)} ml`;
+    return makeReturn(texto, "dosis", {total, base, dosis}, `| total=${total}L, base=${base}, dosis=${dosis}ml`);
   }
 
-  const r = (total / base) * dosis;
+  // === 2. MODO CALCULADORA BASICA: 5+8, 20-4, 4*5, 20/4 ===
+  if(/[\d]\s*[\+\-\*\/x]\s*[\d]/.test(clean) && nums.length >= 2){
+    let expr = clean.replace(/x/g,'*').match(/[\d\.\+\-\*\/\(\) ]+/)[0];
+    if(/^[0-9\.\+\-\*\/\(\) ]+$/.test(expr)){
+      try{
+        let res = Function("return " + expr)();
+        return makeReturn(String(res), "calculadora", {expresion: expr, resultado: res}, `| ${expr} = ${res}`);
+      }catch(e){}
+    }
+  }
 
-  // 4. CONTRATO UNIFICADO: devuelve resultado + log como espera index.html
-  const texto = `${r.toFixed(2)} ml`;
-  return {
-    resultado: texto,
-    result: texto, // por compatibilidad
-    intent: "dosis",
-    entities: { total, base, dosis },
-    domain: "aquarium/dosing.js",
-    curated: true,
-    log: `✅ CURADO por ai-fallback.js V3.2\n👉 ${texto} | total=${total}L, base=${base}, dosis=${dosis}ml`,
-    explanation: `Entendí "${raw}" -> total=${total}L, base=${base}, dosis=${dosis}ml`,
-    raw: `✅ CURADO por ai-fallback.js V3.2\n👉 ${texto}`
-  };
+  // === 3. MODO PROBLEMA UNIVERSAL - NO busca nombres, busca VERBOS ===
+  if(nums.length >= 2){
+    let a = nums[0], b = nums[1];
+    let operacion = null, opSimbolo = "", razon = "";
+
+    // RESTA: dar, regalar, perder, gastar, quitar, comer, vender, queda
+    if(/\b(dar|da|dio|dieron|regala|regalar|regalo|pierde|perdio|perder|gasta|gasto|gastar|quita|quitar|quito|come|comio|comer|vende|vender|vendio|queda|quedan|quitar|restar|menos|falta|debe)\b/.test(clean)){
+      operacion = a - b; opSimbolo = "-"; razon = `Tenia ${a}, dio/perdio ${b} -> resta`;
+    }
+    // DIVISION: reparte, entre, cada uno, dividir
+    else if(/\b(reparte|repartir|repartio|dividir|divide|dividio|entre|cada uno|por persona)\b/.test(clean)){
+      operacion = a / b; opSimbolo = "/"; razon = `Repartir ${a} entre ${b} -> division`;
+    }
+    // SUMA: le dan, recibe, compra, encuentra, mas, total, juntos
+    else if(/\b(le dan|le dieron|recibe|recibio|compra|compro|comprar|encuentra|encontro|mas|sumar|total|juntos|en total|agregar|anadio)\b/.test(clean)){
+      operacion = a + b; opSimbolo = "+"; razon = `Tenia ${a}, sumamos ${b} -> suma`;
+    }
+    // MULTIPLICACION: cada, cajas con, paquetes de, veces, por
+    else if(/\b(cada|paquetes?|cajas?|veces|multiplicar|por)\b/.test(clean)){
+      operacion = a * b; opSimbolo = "x"; razon = `${a} grupos de ${b} -> multiplicacion`;
+    }
+    // Si pregunta "cuantas le quedan" sin verbo claro, es resta por defecto
+    else if(/\b(quedan|queda|sobra|sobran)\b/.test(clean)){
+      operacion = a - b; opSimbolo = "-"; razon = `Pregunta cuanto queda -> resta`;
+    } else {
+      // Si no detecta verbo, no adivina, devuelve null para que lo maneje otro modulo
+      return null;
+    }
+
+    let texto = `${a} ${opSimbolo} ${b} = ${operacion}`;
+    return makeReturn(texto, "problema_universal", {a, b, operacion, operacionTipo: opSimbolo}, `| ${texto} // ${razon}`);
+  }
+
+  return null;
 }

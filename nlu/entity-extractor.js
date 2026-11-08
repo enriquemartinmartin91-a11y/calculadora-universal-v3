@@ -1,4 +1,4 @@
-// nlu/entityExtractor.js V3.2 - Entiende palabras, decimales, miles y unidades
+// nlu/entityExtractor.js V4 - UNIVERSAL: numeros + verbos + operacion sugerida
 const NUMEROS_PALABRA = {
   "cero":0, "uno":1, "una":1, "dos":2, "tres":3, "cuatro":4, "cinco":5, "seis":6, "siete":7, "ocho":8, "nueve":9, "diez":10,
   "once":11, "doce":12, "trece":13, "catorce":14, "quince":15, "dieciseis":16, "diecisiete":17, "dieciocho":18, "diecinueve":19,
@@ -8,24 +8,23 @@ const NUMEROS_PALABRA = {
   "mil":1000
 };
 
+// V4: Verbos universales - no nombres, no objetos. Solo la ACCION.
+const VERBOS_RESTA = ["dar","da","dio","dieron","regala","regalar","regalo","pierde","perdio","perder","gasta","gasto","gastar","quita","quitar","quito","come","comio","comer","vende","vender","vendio","queda","quedan","restar","menos","falta"];
+const VERBOS_SUMA = ["recibe","recibio","recibir","compra","compro","comprar","encuentra","encontro","encontrar","mas","sumar","total","juntos","agregar","anadio","anadir","le dan","le dieron","le dio"];
+const VERBOS_DIVISION = ["reparte","repartir","repartio","dividir","divide","dividio","entre","cada uno","por persona","repartir"];
+const VERBOS_MULTIPLICACION = ["cada","paquetes","paquete","cajas","caja","veces","multiplicar","multiplica","por"];
+
 export function EntityExtractor(raw){
   let clean = String(raw||"").toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g,"") // "doscientos" sin acentos
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
     .replace(/\s+/g,' ').trim();
 
-  // 1. Convierte palabras a números ANTES de buscar con regex
-  // "quinientos litros, cinco al" -> "500 litros, 5 al"
-  // Usa bordes \b para no convertir "cinco" dentro de otra palabra
   for(let [palabra, valor] of Object.entries(NUMEROS_PALABRA)){
     clean = clean.replace(new RegExp(`\\b${palabra}\\b`, 'g'), String(valor));
   }
-  // "dos cientos" -> "200" (caso compuesto)
   clean = clean.replace(/\b(\d+)\s+cientos\b/g, (m, n) => String(parseInt(n)*100));
-  // "mil doscientos" -> "1200" simple: si hay "1000 200" juntos, súmalos
   clean = clean.replace(/\b1000\s+(\d+)\b/g, (m, n) => String(1000 + parseInt(n)));
 
-  // 2. Busca números CON unidad: "500L", "500 litros", "5ml", "5 al", "3x4", "19,4"
-  // Soporta decimal con coma "19,4" y miles con coma "1,500" y punto "1.500"
   const patron = /(-?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?)\s*(litros?|litro|l|ml|miligramos?|miligramo|metros?|metro|m|al|a\/l|cm|kg|gr|g|piezas?|unidades?)?/g;
   let numbers = [];
   let numbersWithUnits = [];
@@ -34,42 +33,91 @@ export function EntityExtractor(raw){
   while((m = patron.exec(clean)) !== null){
     let numStr = m[1];
     let unidad = (m[2] || "").toLowerCase();
-
-    // 3. Distingue miles de decimal: "1,500" (3 dígitos después de coma) = 1500, "19,4" (1 dígito) = 19.4
     let valor;
     if(/^\d{1,3},\d{3}$/.test(numStr) || /^\d{1,3}\.\d{3}$/.test(numStr)){
-      // Es miles: "1,500" -> 1500
       valor = parseFloat(numStr.replace(/[.,]/g,''));
     } else {
-      // Es decimal: "19,4" -> 19.4, "19.4" -> 19.4
       valor = parseFloat(numStr.replace(',','.'));
     }
     if(!isFinite(valor)) continue;
-
     numbers.push(valor);
     numbersWithUnits.push({ valor, unidad: unidad || null, texto: m[0].trim(), indice: m.index });
   }
 
-  // 4. Si no encontró con patrón con unidad, fallback al regex simple viejo
   if(numbers.length === 0){
     const fallback = [...clean.matchAll(/-?\d+(?:[.,]\d+)?/g)].map(x => parseFloat(x[0].replace(',','.'))).filter(isFinite);
     numbers = fallback;
     numbersWithUnits = fallback.map(v => ({ valor: v, unidad: null, texto: String(v), indice: -1 }));
   }
 
-  // 5. Extra: detecta si hay "x" de pared, "/" de dosis, etc. para que los dominios no adivinen
   const tieneX = /x|por/.test(clean);
   const tieneSlash = /\//.test(clean);
 
+  // === V4 UNIVERSAL: Detecta verbos y operacion, no nombres ===
+  const encontrarVerbos = (lista) => lista.filter(v => new RegExp(`\\b${v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`).test(clean));
+
+  const verbosResta = encontrarVerbos(VERBOS_RESTA);
+  const verbosSuma = encontrarVerbos(VERBOS_SUMA);
+  const verbosDivision = encontrarVerbos(VERBOS_DIVISION);
+  const verbosMulti = encontrarVerbos(VERBOS_MULTIPLICACION);
+
+  // Detecta si es calculadora con simbolos: 5+8, 20-4, 4*5
+  const esCalculadora = /-?\d+\s*[\+\-\*\/x]\s*-?\d+/.test(clean);
+  let operadorCalculadora = null;
+  if(esCalculadora){
+    let opMatch = clean.match(/-?\d+\s*([\+\-\*\/x])\s*-?\d+/);
+    if(opMatch) operadorCalculadora = opMatch[1];
+  }
+
+  // Sugerencia de operacion por prioridad: division > resta > suma > multiplicacion
+  // Prioridad porque "reparte" es mas especifico que "cada"
+  let operacionSugerida = null;
+  let verbosDetectados = [];
+  if(verbosDivision.length > 0){ operacionSugerida = "division"; verbosDetectados = verbosDivision; }
+  else if(verbosResta.length > 0){ operacionSugerida = "resta"; verbosDetectados = verbosResta; }
+  else if(verbosSuma.length > 0){ operacionSugerida = "suma"; verbosDetectados = verbosSuma; }
+  else if(verbosMulti.length > 0){ operacionSugerida = "multiplicacion"; verbosDetectados = verbosMulti; }
+  else if(esCalculadora){
+    if(operadorCalculadora === "+") operacionSugerida = "suma";
+    if(operadorCalculadora === "-") operacionSugerida = "resta";
+    if(operadorCalculadora === "*" || operadorCalculadora === "x") operacionSugerida = "multiplicacion";
+    if(operadorCalculadora === "/") operacionSugerida = "division";
+  }
+
+  // Es problema con palabras si tiene numeros + verbos, pero NO es solo calculadora ni dosis
+  const esDosis = /\b(l|litro|litros|ml|dosis)\b/.test(clean);
+  const esProblemaPalabras = !esDosis && numbers.length >= 2 && (verbosDetectados.length > 0 || /\b(cuanto|cuantos|cuantas|queda|quedan|sobra|total)\b/.test(clean));
+
+  // Tipo de pregunta: cuanto queda, cuanto tiene, cuanto es
+  let tipoPregunta = null;
+  if(/\b(queda|quedan|sobra|sobran)\b/.test(clean)) tipoPregunta = "cuanto_queda";
+  else if(/\b(total|en total|juntos|cuantos tiene|cuanto tiene)\b/.test(clean)) tipoPregunta = "cuanto_total";
+  else if(/\b(cada uno|por persona|entre)\b/.test(clean)) tipoPregunta = "reparto";
+  else if(/\b(cuanto|cuantos|cuantas)\b/.test(clean)) tipoPregunta = "cuanto";
+
   return {
-    numbers, // [500, 5, 80] igual que antes, para no romper nada
-    numbersWithUnits, // NUEVO: [{valor:500, unidad:"l"}, {valor:5, unidad:"ml"}, {valor:80, unidad:null}]
+    numbers,
+    numbersWithUnits,
     raw,
     clean,
     tieneX,
     tieneSlash,
-    // Helpers para que Dosing/Wall/Division ya no adivinen con rangos
     totalLitros: numbersWithUnits.find(n => n.unidad === "l" || n.unidad === "litro" || n.unidad === "litros")?.valor ?? null,
-    dosisMl: numbersWithUnits.find(n => n.unidad === "ml" || n.unidad === "al" || n.unidad === "a/l")?.valor ?? null
+    dosisMl: numbersWithUnits.find(n => n.unidad === "ml" || n.unidad === "al" || n.unidad === "a/l")?.valor ?? null,
+    // === V4 UNIVERSAL ===
+    verbos: verbosDetectados,
+    verbosResta,
+    verbosSuma,
+    verbosDivision,
+    verbosMultiplicacion: verbosMulti,
+    operacionSugerida, // "resta" | "suma" | "division" | "multiplicacion" | null
+    esCalculadora,
+    operadorCalculadora, // "+" | "-" | "*" | "/" | null
+    esProblemaPalabras,
+    esDosis,
+    tipoPregunta, // "cuanto_queda" | "cuanto_total" | "reparto" | "cuanto" | null
+    // Helpers para que orchestrator no tenga que adivinar
+    primerNumero: numbers[0] ?? null,
+    segundoNumero: numbers[1] ?? null,
   };
 }
